@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from maas.config import EmbeddingProvider, Settings, VectorStoreProvider
+from maas.config import EmbeddingProvider, LLMProvider, Settings, VectorStoreProvider
 from maas.ltm.config import build_mem0_config
 from maas.ltm.models import AddMemoryRequest, MemoryCategory, SearchMemoryRequest
 from maas.ltm.service import LTMService
@@ -13,6 +13,7 @@ from maas.ltm.service import LTMService
 @pytest.mark.unit
 def test_build_mem0_config_includes_keys() -> None:
     settings = Settings(
+        llm_provider=LLMProvider.OPENAI,
         llm_api_key="llm-key",
         llm_model="gpt-test",
         llm_base_url="https://example.com/v1",
@@ -114,7 +115,8 @@ async def test_get_update_delete_history_passthrough() -> None:
     await service.delete("1")
     await service.history("1")
 
-    memory.get.assert_awaited_once_with("1")
+    memory.get.assert_any_await("1")
+    assert memory.get.await_count == 2  # once for get(), once for update() re-fetch
     memory.update.assert_awaited_once_with("1", "new data")
     memory.delete.assert_awaited_once_with("1")
     memory.history.assert_awaited_once_with("1")
@@ -142,3 +144,37 @@ def test_build_mem0_config_azure_documentdb_provider() -> None:
     assert config["vector_store"]["config"]["db_name"] == "maas_prod"
     assert config["vector_store"]["config"]["collection_name"] == "mem_prod"
     assert config["vector_store"]["config"]["embedding_model_dims"] == 1536
+
+
+@pytest.mark.unit
+def test_build_mem0_config_azure_openai_provider() -> None:
+    settings = Settings(
+        llm_provider=LLMProvider.AZURE_OPENAI,
+        llm_api_key="azure-llm-key",
+        llm_model="gpt-4o",
+        azure_endpoint="https://my-resource.openai.azure.com",
+        llm_api_version="2024-10-21",
+        embedding_provider=EmbeddingProvider.AZURE_OPENAI,
+        embedding_api_key="azure-embed-key",
+        embedding_model="text-embedding-3-small",
+        embedding_api_version="2024-10-21",
+        embedding_dims=1536,
+        mongodb_uri="mongodb://localhost:27017",
+    )
+
+    config = build_mem0_config(settings)
+
+    assert config["llm"]["provider"] == "azure_openai"
+    assert config["llm"]["config"]["model"] == "gpt-4o"
+    assert config["llm"]["config"]["azure_kwargs"]["api_key"] == "azure-llm-key"
+    assert config["llm"]["config"]["azure_kwargs"]["azure_deployment"] == "gpt-4o"
+    assert config["llm"]["config"]["azure_kwargs"]["azure_endpoint"] == "https://my-resource.openai.azure.com"
+    assert config["llm"]["config"]["azure_kwargs"]["api_version"] == "2024-10-21"
+    assert "api_key" not in config["llm"]["config"]
+    assert "openai_base_url" not in config["llm"]["config"]
+
+    assert config["embedder"]["provider"] == "azure_openai"
+    assert config["embedder"]["config"]["azure_kwargs"]["api_key"] == "azure-embed-key"
+    assert config["embedder"]["config"]["azure_kwargs"]["azure_deployment"] == "text-embedding-3-small"
+    assert config["embedder"]["config"]["azure_kwargs"]["azure_endpoint"] == "https://my-resource.openai.azure.com"
+    assert "api_key" not in config["embedder"]["config"]
