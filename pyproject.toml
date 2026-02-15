@@ -1,0 +1,97 @@
+[project]
+name = "my-maas"
+version = "0.1.0"
+description = "Memory as a Service — STM and LTM powered by mem0, Redis, and Azure DocumentDB"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # Web framework
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    # Memory
+    "mem0ai>=1.0.3",
+    # Stores
+    "redis[hiredis]>=5.0.0",
+    "pymongo>=4.0.0",
+    # LLM / Embeddings
+    "openai>=1.60.0",
+    "tiktoken>=0.8.0",
+    "cohere>=5.0.0",
+    # Config
+    "pydantic-settings>=2.0.0",
+    # Observability
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp>=1.20.0",
+    "opentelemetry-instrumentation-fastapi>=0.41b0",
+    "openlit>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "httpx>=0.27.0",
+    "ruff>=0.9.0",
+    "testcontainers[redis,mongodb]>=4.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/maas"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "unit: Unit tests (no external dependencies)",
+    "integration: Integration tests (requires docker-compose services)",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort
+    "N",     # pep8-naming
+    "UP",    # pyupgrade
+    "B",     # flake8-bugbear
+    "A",     # flake8-builtins
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "TCH",   # flake8-type-checking
+    "RUF",   # ruff-specific
+    "S",     # flake8-bandit (security)
+    "DTZ",   # flake8-datetimez
+    "PT",    # flake8-pytest-style
+    "RET",   # flake8-return
+    "ARG",   # flake8-unused-arguments
+]
+ignore = [
+    "S101",  # assert in tests is fine
+    "S104",  # binding to 0.0.0.0 is intentional for containers
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["maas"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
