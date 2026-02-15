@@ -15,7 +15,7 @@
 | Tests | pytest + pytest-asyncio (85 unit + 19 integration) |
 | STM Backend | Redis 7 (sorted sets) |
 | LTM Engine | mem0 v1.0.3 (AsyncMemory) |
-| LTM Backend | MongoDB Atlas Local (dev) / Azure DocumentDB (prod) |
+| LTM Backend | DocumentDB Local (dev, port 10260, TLS) / Azure DocumentDB (prod) |
 | Container | Docker multi-stage with uv |
 | Observability | OpenTelemetry → OTEL Collector → Langfuse + OpenLIT |
 
@@ -28,8 +28,8 @@ Client → FastAPI → STM Router → MessageStore → Redis
 
 - **STM**: Pure Redis message buffer with sliding window and token-threshold summarization strategies. No vector search. No mem0.
 - **LTM**: mem0 `AsyncMemory` wrapping MongoDB vector store. Four memory categories (semantic, episodic, fact, preference) as metadata filters on a single collection.
-- **LLM Gateway**: All providers accessed via `AsyncOpenAI` client with configurable `base_url`. 9 pre-mapped providers + custom URL override.
-- **Vector Store**: Pluggable via `VECTOR_STORE_PROVIDER` env var. `mongodb` (Atlas) for dev, `azure_documentdb` (custom adapter) for prod.
+- **LLM Gateway**: Standard providers use `AsyncOpenAI` with configurable `base_url` (9 pre-mapped + custom URL override). Azure OpenAI uses `AsyncAzureOpenAI` with `azure_endpoint`, `api_version`, and deployment-based routing.
+- **Vector Store**: Pluggable via `VECTOR_STORE_PROVIDER` env var. `mongodb` (DocumentDB Local) for dev, `azure_documentdb` (custom adapter) for prod.
 
 ## Source Layout
 
@@ -89,8 +89,11 @@ Custom providers are registered with mem0's factories before creating Memory ins
 register_cohere_embedder()           # EmbedderFactory
 register_documentdb_vector_store()   # VectorStoreFactory
 
-# Registration pattern:
-Factory.provider_to_class["name"] = "dotted.path.to.Class"
+# Registration pattern (3 parts required for vector stores):
+# 1. VectorStoreFactory.provider_to_class — so mem0 can instantiate the class
+# 2. VectorStoreConfig._provider_configs.default — so pydantic validation accepts the provider
+#    (MUST use .default because _provider_configs is a ModelPrivateAttr)
+# 3. sys.modules injection — so mem0's dynamic __import__ finds the config module
 ```
 
 ### STM Session Config
@@ -106,7 +109,7 @@ Per-session strategy config is stored in Redis as JSON:
 ### TTL Pattern
 
 - **STM**: Redis `EXPIRE` on session keys via `_touch_ttl()` method. Configurable via `stm_session_ttl_seconds` (0=disabled, default 86400=24h).
-- **LTM**: `expires_at` timestamp stored in metadata. Post-filtered in `search()` and `get_all()`. Private `_get_all_unfiltered()` for cleanup discovery. `DELETE /memories/expired` endpoint for batch cleanup.
+- **LTM**: `expires_at` timestamp stored in metadata. Post-filtered in `search()` and `get_all()`. `delete_expired()` queries the vector store collection directly via pymongo (bypasses mem0's scope requirement). `DELETE /memories/expired` endpoint for batch cleanup.
 
 ### Batch Operations Pattern
 
@@ -158,7 +161,7 @@ uv run ruff format --check src/ tests/  # Format check
 
 ```bash
 docker compose up -d              # Full stack (7 services)
-docker compose up -d redis mongodb  # Dev backing services only
+docker compose up -d redis mongodb  # Dev backing services only (DocumentDB Local)
 docker compose build maas          # Rebuild app image
 ```
 
@@ -168,10 +171,10 @@ All config via `.env` — see `.env.example` for complete list. Key variables:
 
 | Variable | Purpose |
 |---|---|
-| `LLM_PROVIDER` + `LLM_API_KEY` | LLM access |
-| `EMBEDDING_PROVIDER` + `EMBEDDING_API_KEY` | Embedding access |
+| `LLM_PROVIDER` + `LLM_API_KEY` | LLM access (use `azure_openai` for Azure OpenAI) |
+| `EMBEDDING_PROVIDER` + `EMBEDDING_API_KEY` | Embedding access (use `azure_openai` for Azure OpenAI) |
 | `REDIS_URL` | STM backend |
-| `MONGODB_URI` | LTM backend |
+| `MONGODB_URI` | LTM backend (DocumentDB Local for dev, Azure DocumentDB for prod) |
 | `VECTOR_STORE_PROVIDER` | `mongodb` (dev) or `azure_documentdb` (prod) |
 | `STM_SESSION_TTL_SECONDS` | STM session TTL (0=disabled, default 86400) |
 | `LTM_DEFAULT_TTL_SECONDS` | LTM memory TTL (0=disabled, default 0) |
@@ -190,3 +193,10 @@ All config via `.env` — see `.env.example` for complete list. Key variables:
 - mem0 `MongoDBConfig` has strict field validation — only pass expected fields
 - Integration tests require Docker daemon running (testcontainers)
 - Batch endpoints use POST for all operations (including delete) to avoid path conflict with `{memory_id}`
+- **Azure OpenAI** requires `AsyncAzureOpenAI` client (not `AsyncOpenAI` with `base_url`) — see `gateway.py`
+- **mem0 `azure_openai` embedder** requires `azure-identity` package even when using API key auth (module-level import)
+- **mem0 `azure_kwargs`** structure: `{"api_key": "...", "azure_deployment": "...", "azure_endpoint": "https://...", "api_version": "2024-10-21"}`
+- **mem0 filter operators**: mem0 passes `{"in": [...]}` style operators; DocumentDB adapter translates to `{"$in": [...]}` via `_translate_filter_value()`
+- **mem0 `VectorStoreConfig._provider_configs`** is a pydantic v2 `ModelPrivateAttr` — must use `.default` dict for registration, not direct assignment
+- **mem0 `AsyncMemory.add()`** returns `{"results": [...]}` — `LTMService.add()` unwraps the first result
+- **mem0 `update()`** only returns `{"message": "..."}` — `LTMService.update()` re-fetches to return updated memory

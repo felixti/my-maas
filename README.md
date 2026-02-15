@@ -21,7 +21,7 @@ A FastAPI microservice providing **Short-Term Memory (STM)** and **Long-Term Mem
 | Runtime | Python 3.12, FastAPI, AsyncIO |
 | LTM Engine | mem0 (AsyncMemory) |
 | STM Store | Redis (sorted sets) |
-| LTM Store | MongoDB Atlas Local (dev) / Azure DocumentDB (prod) |
+| LTM Store | DocumentDB Local (dev) / Azure DocumentDB (prod) |
 | Observability | OpenTelemetry + Langfuse + OpenLIT |
 | Package Manager | uv |
 | Linter/Formatter | Ruff |
@@ -111,7 +111,7 @@ uv sync
 cp .env.example .env
 
 # Start backing services only
-docker compose up -d redis mongodb
+docker compose up -d redis documentdb
 
 # Run dev server
 uv run uvicorn maas.main:app --reload
@@ -169,8 +169,8 @@ All configuration is via environment variables (loaded from `.env`).
 
 | Variable | Default | Description |
 |---|---|---|
-| `VECTOR_STORE_PROVIDER` | `mongodb` | Vector store backend (`mongodb` for Atlas, `azure_documentdb` for Azure DocumentDB) |
-| `MONGODB_URI` | `mongodb://localhost:27017` | MongoDB connection URI |
+| `VECTOR_STORE_PROVIDER` | `mongodb` | Vector store backend (`mongodb` for DocumentDB Local, `azure_documentdb` for Azure DocumentDB) |
+| `MONGODB_URI` | `mongodb://localhost:10260/?tls=true&tlsAllowInvalidCertificates=true&authMechanism=SCRAM-SHA-256&retrywrites=false` | MongoDB/DocumentDB connection URI (DocumentDB Local includes TLS params by default) |
 | `MONGODB_DB_NAME` | `maas` | Database name |
 | `MONGODB_COLLECTION_NAME` | `memories` | Collection name |
 | `LTM_DEFAULT_TTL_SECONDS` | `0` | Memory TTL in seconds (0 = no expiration) |
@@ -206,9 +206,9 @@ For unlisted providers, set `LLM_BASE_URL` directly to any OpenAI-compatible end
 
 ## Azure DocumentDB (Production Vector Store)
 
-For local development, the default `mongodb` vector store provider uses `mongodb/mongodb-atlas-local` with Atlas `$vectorSearch`. In production with Azure DocumentDB (MongoDB compatibility), set `VECTOR_STORE_PROVIDER=azure_documentdb` to use a custom adapter that translates to DocumentDB's `cosmosSearch` API.
+For local development, DocumentDB Local is used as the LTM backend with the same custom adapter (`azure_documentdb` provider) that works with production Azure DocumentDB. In production with Azure DocumentDB (MongoDB compatibility), set `VECTOR_STORE_PROVIDER=azure_documentdb` to use the custom adapter that translates to DocumentDB's `cosmosSearch` API.
 
-### Key differences from Atlas:
+### Key differences from MongoDB Atlas:
 
 | Feature | Atlas (`mongodb`) | DocumentDB (`azure_documentdb`) |
 |---|---|---|
@@ -228,6 +228,8 @@ MONGODB_COLLECTION_NAME=memories
 EMBEDDING_DIMS=1536  # Must match your embedding model's dimensions
 ```
 
+**Note on DocumentDB Local**: The same `azure_documentdb` adapter works with DocumentDB Local during development. The default `MONGODB_URI` in `.env` is pre-configured for DocumentDB Local on port 10260 with required TLS parameters. For production Azure DocumentDB, simply update `MONGODB_URI` to your cloud cluster endpoint.
+
 The adapter automatically creates HNSW vector indexes with cosine similarity on first startup. All CRUD operations use standard pymongo and work identically across both providers.
 
 ## Docker
@@ -240,7 +242,7 @@ The adapter automatically creates HNSW vector indexes with cosine similarity on 
 |---|---|---|
 | `maas` | Built from Dockerfile | The MaaS API server |
 | `redis` | `redis:7-alpine` | STM message store |
-| `mongodb` | `mongodb/mongodb-atlas-local` | LTM vector + document store |
+| `documentdb` | `ghcr.io/documentdb/documentdb/documentdb-local:latest` | LTM vector + document store (DocumentDB Local) |
 | `langfuse` | `langfuse/langfuse` | Trace visualization |
 | `langfuse-db` | `postgres:16-alpine` | Langfuse database |
 | `langfuse-redis` | `redis:7-alpine` | Langfuse cache |
@@ -254,7 +256,7 @@ docker compose build maas
 docker compose up -d
 
 # Run only backing services (for local dev)
-docker compose up -d redis mongodb
+docker compose up -d redis documentdb
 ```
 
 ## Project Structure
