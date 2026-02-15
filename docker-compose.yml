@@ -6,13 +6,14 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      mongodb:
+      documentdb:
         condition: service_healthy
     env_file:
       - .env
     environment:
       REDIS_URL: redis://redis:6379
-      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_URI: mongodb://maas:maasdevpass@documentdb:10260/maas?tls=true&tlsAllowInvalidCertificates=true&authMechanism=SCRAM-SHA-256&retrywrites=false
+      VECTOR_STORE_PROVIDER: azure_documentdb
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
 
   redis:
@@ -25,20 +26,76 @@ services:
       timeout: 3s
       retries: 5
 
-  mongodb:
-    image: mongodb/mongodb-atlas-local:latest
+  documentdb:
+    image: ghcr.io/documentdb/documentdb/documentdb-local:latest
     ports:
-      - "27017:27017"
+      - "10260:10260"
+    environment:
+      USERNAME: maas
+      PASSWORD: maasdevpass
     volumes:
-      - mongodb_data:/data/db
+      - documentdb_data:/data
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: ["CMD", "nc", "-z", "127.0.0.1", "10260"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s
+
+  # Langfuse v3 Stack
+  langfuse-web:
+    image: langfuse/langfuse:3
+    restart: always
+    depends_on: &langfuse-depends-on
+      langfuse-db:
+        condition: service_healthy
+      langfuse-minio:
+        condition: service_healthy
+      langfuse-redis:
+        condition: service_healthy
+      langfuse-clickhouse:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment: &langfuse-web-env
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev-nextauth-secret-change-in-prod
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      SALT: dev-salt-change-in-prod
+      ENCRYPTION_KEY: 31b9fc92b56db55dacb768456057b590b3a322f50dbbe72c6e2a74c87afc1368
+      TELEMETRY_ENABLED: "true"
+      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+      CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+      CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+      CLICKHOUSE_CLUSTER_ENABLED: "false"
+      LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_EVENT_UPLOAD_REGION: auto
+      LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+      LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
+      LANGFUSE_S3_MEDIA_UPLOAD_REGION: auto
+      LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: minio
+      LANGFUSE_S3_MEDIA_UPLOAD_SECRET_ACCESS_KEY: miniosecret
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: "true"
+      REDIS_HOST: langfuse-redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: myredissecret
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    restart: always
+    depends_on: *langfuse-depends-on
+    environment:
+      <<: *langfuse-web-env
 
   langfuse-db:
     image: postgres:16-alpine
+    restart: always
     environment:
       POSTGRES_DB: langfuse
       POSTGRES_USER: langfuse
@@ -53,29 +110,50 @@ services:
 
   langfuse-redis:
     image: redis:7-alpine
+    restart: always
+    command: >
+      --requirepass myredissecret
+      --maxmemory-policy noeviction
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      test: ["CMD", "redis-cli", "-a", "myredissecret", "ping"]
+      interval: 3s
+      timeout: 10s
+      retries: 10
 
-  langfuse:
-    image: langfuse/langfuse:latest
-    ports:
-      - "3000:3000"
-    depends_on:
-      langfuse-db:
-        condition: service_healthy
-      langfuse-redis:
-        condition: service_healthy
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    restart: always
+    user: "101:101"
     environment:
-      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
-      REDIS_CONNECTION_STRING: redis://langfuse-redis:6379
-      NEXTAUTH_SECRET: dev-nextauth-secret-change-in-prod
-      SALT: dev-salt-change-in-prod
-      NEXTAUTH_URL: http://localhost:3000
-      TELEMETRY_ENABLED: "true"
-      LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES: "true"
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: clickhouse
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 1s
+
+  langfuse-minio:
+    image: minio/minio:latest
+    restart: always
+    entrypoint: sh
+    command: -c 'mkdir -p /data/langfuse && minio server --address ":9000" --console-address ":9001" /data'
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: miniosecret
+    volumes:
+      - langfuse_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+      start_period: 1s
 
   otel-collector:
     image: otel/opentelemetry-collector-contrib:latest
@@ -86,8 +164,11 @@ services:
       - "4317:4317"
       - "4318:4318"
     depends_on:
-      - langfuse
+      - langfuse-web
 
 volumes:
-  mongodb_data:
+  documentdb_data:
   langfuse_pg_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:
