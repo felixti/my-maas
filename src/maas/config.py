@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMProvider(StrEnum):
     OPENAI = "openai"
+    AZURE_OPENAI = "azure_openai"
     GROK = "grok"
     ANTHROPIC = "anthropic"
     OPENROUTER = "openrouter"
@@ -64,12 +65,15 @@ class Settings(BaseSettings):
     llm_base_url: str = ""
     llm_temperature: float = 0.1
     llm_max_tokens: int = 4096
+    llm_api_version: str = "2024-10-21"
+    azure_endpoint: str = ""
 
     embedding_provider: EmbeddingProvider = EmbeddingProvider.OPENAI
     embedding_api_key: str = Field(default="")
     embedding_model: str = "text-embedding-3-small"
     embedding_base_url: str = ""
     embedding_dims: int = 1536
+    embedding_api_version: str = "2024-10-21"
 
     redis_url: str = "redis://localhost:6379"
     stm_default_strategy: STMStrategy = STMStrategy.SLIDING_WINDOW
