@@ -1,0 +1,223 @@
+### -------------------------------------------------------
+### LTM (Long-Term Memory) — Persistent semantic memory
+### -------------------------------------------------------
+
+### --- Add Memories ---
+
+### Add a semantic memory (user-scoped)
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": "The user prefers concise, bullet-point responses over long paragraphs.",
+  "category": "preference",
+  "user_id": "{{userId}}"
+}
+
+### Add a fact memory (user-scoped)
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": "User's name is Felix and he lives in Sao Paulo, Brazil.",
+  "category": "fact",
+  "user_id": "{{userId}}"
+}
+
+### Add an episodic memory (session-scoped)
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": "In today's session, the user asked about Tokyo travel planning and decided on a 10-day trip in April.",
+  "category": "episodic",
+  "session_id": "{{sessionId}}"
+}
+
+### Add a semantic memory (agent-scoped)
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": "When recommending restaurants, always check for dietary restrictions first.",
+  "category": "semantic",
+  "agent_id": "{{agentId}}"
+}
+
+### Add memory with chat-style messages (list format)
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": [
+    {"role": "user", "content": "I'm allergic to shellfish"},
+    {"role": "assistant", "content": "I've noted your shellfish allergy. I'll make sure to exclude shellfish from any food recommendations."}
+  ],
+  "category": "fact",
+  "user_id": "{{userId}}"
+}
+
+### Add memory with custom metadata
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": "User completed the onboarding flow and selected the 'Developer' persona.",
+  "category": "episodic",
+  "user_id": "{{userId}}",
+  "metadata": {
+    "source": "onboarding",
+    "persona": "developer",
+    "completed_at": "2026-02-15"
+  }
+}
+
+### Add memory with TTL (expires in 1 hour)
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": "User is currently debugging a Redis connection issue — offer proactive help if they mention Redis.",
+  "category": "episodic",
+  "user_id": "{{userId}}",
+  "ttl_seconds": 3600
+}
+
+### Add memory with explicit no-expiration (overrides server default)
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": "User's timezone is America/Sao_Paulo (UTC-3).",
+  "category": "fact",
+  "user_id": "{{userId}}",
+  "ttl_seconds": 0
+}
+
+### Add memory with multiple scope identifiers
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": "During session with agent travel-bot, user expressed interest in Japanese cuisine.",
+  "category": "preference",
+  "user_id": "{{userId}}",
+  "agent_id": "{{agentId}}",
+  "session_id": "{{sessionId}}"
+}
+
+### Validation error — missing scope (should return 422)
+POST {{baseUrl}}/ltm/memories
+Content-Type: application/json
+
+{
+  "messages": "This should fail because no scope is provided.",
+  "category": "semantic"
+}
+
+### --- Search Memories ---
+
+### Search by query (user-scoped)
+POST {{baseUrl}}/ltm/memories/search
+Content-Type: application/json
+
+{
+  "query": "What are the user's food preferences?",
+  "user_id": "{{userId}}"
+}
+
+### Search with category filter
+POST {{baseUrl}}/ltm/memories/search
+Content-Type: application/json
+
+{
+  "query": "user preferences",
+  "user_id": "{{userId}}",
+  "categories": ["preference"]
+}
+
+### Search with multiple category filters
+POST {{baseUrl}}/ltm/memories/search
+Content-Type: application/json
+
+{
+  "query": "what do we know about the user",
+  "user_id": "{{userId}}",
+  "categories": ["fact", "preference"]
+}
+
+### Search with limit
+POST {{baseUrl}}/ltm/memories/search
+Content-Type: application/json
+
+{
+  "query": "travel plans",
+  "user_id": "{{userId}}",
+  "limit": 5
+}
+
+### Search agent-scoped memories
+POST {{baseUrl}}/ltm/memories/search
+Content-Type: application/json
+
+{
+  "query": "restaurant recommendation guidelines",
+  "agent_id": "{{agentId}}"
+}
+
+### Search session-scoped memories
+POST {{baseUrl}}/ltm/memories/search
+Content-Type: application/json
+
+{
+  "query": "what happened in this session",
+  "session_id": "{{sessionId}}"
+}
+
+### --- List Memories ---
+
+### List all memories for a user
+GET {{baseUrl}}/ltm/memories?user_id={{userId}}
+
+### List memories for an agent
+GET {{baseUrl}}/ltm/memories?agent_id={{agentId}}
+
+### List memories for a session
+GET {{baseUrl}}/ltm/memories?session_id={{sessionId}}
+
+### List with multiple filters
+GET {{baseUrl}}/ltm/memories?user_id={{userId}}&agent_id={{agentId}}
+
+### List with limit
+GET {{baseUrl}}/ltm/memories?user_id={{userId}}&limit=3
+
+### --- Get Single Memory ---
+### (Replace {{memoryId}} with an actual ID from add/list responses)
+
+### Get a specific memory by ID
+GET {{baseUrl}}/ltm/memories/{{memoryId}}
+
+### --- Update Memory ---
+
+### Update memory content
+PUT {{baseUrl}}/ltm/memories/{{memoryId}}
+Content-Type: application/json
+
+{
+  "data": "The user prefers concise bullet-point responses and uses dark mode."
+}
+
+### --- Memory History ---
+
+### Get change history for a memory
+GET {{baseUrl}}/ltm/memories/{{memoryId}}/history
+
+### --- Delete Memory ---
+
+### Delete a specific memory
+DELETE {{baseUrl}}/ltm/memories/{{memoryId}}
+
+### --- TTL Cleanup ---
+
+### Delete all expired memories
+DELETE {{baseUrl}}/ltm/memories/expired

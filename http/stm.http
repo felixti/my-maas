@@ -1,0 +1,164 @@
+### -------------------------------------------------------
+### STM (Short-Term Memory) — Session-scoped message buffers
+### -------------------------------------------------------
+
+### --- Add Messages ---
+
+### Add a single user message
+POST {{baseUrl}}/stm/{{sessionId}}/messages
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello, I need help planning a trip to Tokyo."
+    }
+  ]
+}
+
+### Add an assistant reply
+POST {{baseUrl}}/stm/{{sessionId}}/messages
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "assistant",
+      "content": "I'd love to help you plan your Tokyo trip! When are you thinking of going, and how many days do you have?"
+    }
+  ]
+}
+
+### Add a multi-turn conversation batch
+POST {{baseUrl}}/stm/{{sessionId}}/messages
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "I'm thinking 10 days in April. Cherry blossom season!"
+    },
+    {
+      "role": "assistant",
+      "content": "Great choice! Late March to mid-April is peak cherry blossom season. I'd suggest splitting your time between Tokyo, Kyoto, and a day trip to Hakone."
+    },
+    {
+      "role": "user",
+      "content": "That sounds perfect. What about accommodation?"
+    }
+  ]
+}
+
+### Add a system message
+POST {{baseUrl}}/stm/{{sessionId}}/messages
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a helpful travel planning assistant specializing in Japan."
+    }
+  ]
+}
+
+### Add messages with metadata
+POST {{baseUrl}}/stm/{{sessionId}}/messages
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "What's the budget for a mid-range hotel per night?",
+      "metadata": {
+        "intent": "budget_inquiry",
+        "topic": "accommodation"
+      }
+    }
+  ]
+}
+
+### Add empty messages (edge case — should succeed with 0 added)
+POST {{baseUrl}}/stm/{{sessionId}}/messages
+Content-Type: application/json
+
+{
+  "messages": []
+}
+
+### --- Get Messages ---
+
+### Get all messages in session
+GET {{baseUrl}}/stm/{{sessionId}}/messages
+
+### Get messages with limit
+GET {{baseUrl}}/stm/{{sessionId}}/messages?limit=3
+
+### Get messages from non-existent session (should return empty)
+GET {{baseUrl}}/stm/non-existent-session/messages
+
+### --- Get Context ---
+
+### Get context window (applies active strategy)
+GET {{baseUrl}}/stm/{{sessionId}}/context
+
+### --- Session Config ---
+
+### Set session to sliding window strategy
+PUT {{baseUrl}}/stm/{{sessionId}}/config
+Content-Type: application/json
+
+{
+  "strategy": "sliding_window",
+  "max_messages": 20
+}
+
+### Set session to token threshold strategy
+PUT {{baseUrl}}/stm/{{sessionId}}/config
+Content-Type: application/json
+
+{
+  "strategy": "token_threshold",
+  "max_tokens": 4000
+}
+
+### Update only max_messages (keep current strategy)
+PUT {{baseUrl}}/stm/{{sessionId}}/config
+Content-Type: application/json
+
+{
+  "max_messages": 100
+}
+
+### --- Delete Session ---
+
+### Delete session and all its messages
+DELETE {{baseUrl}}/stm/{{sessionId}}
+
+### --- Second Session (multi-session test) ---
+
+### Add messages to a different session
+POST {{baseUrl}}/stm/session-002/messages
+Content-Type: application/json
+
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": "Can you help me write a Python script?"
+    },
+    {
+      "role": "assistant",
+      "content": "Of course! What would you like the script to do?"
+    }
+  ]
+}
+
+### Verify second session is independent
+GET {{baseUrl}}/stm/session-002/messages
+
+### Clean up second session
+DELETE {{baseUrl}}/stm/session-002

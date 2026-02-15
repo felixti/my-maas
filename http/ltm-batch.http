@@ -1,0 +1,217 @@
+### -------------------------------------------------------
+### LTM Batch Operations — Bulk add, search, delete
+### -------------------------------------------------------
+
+### --- Batch Add ---
+
+### Batch add multiple memories at once
+POST {{baseUrl}}/ltm/memories/batch/add
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "messages": "User enjoys hiking and outdoor activities.",
+      "category": "preference",
+      "user_id": "{{userId}}"
+    },
+    {
+      "messages": "User's primary programming language is Python.",
+      "category": "fact",
+      "user_id": "{{userId}}"
+    },
+    {
+      "messages": "User asked about machine learning frameworks and chose PyTorch.",
+      "category": "episodic",
+      "user_id": "{{userId}}",
+      "session_id": "{{sessionId}}"
+    }
+  ]
+}
+
+### Batch add with mixed scopes
+POST {{baseUrl}}/ltm/memories/batch/add
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "messages": "User prefers VS Code as their editor.",
+      "category": "preference",
+      "user_id": "{{userId}}"
+    },
+    {
+      "messages": "Agent should always greet returning users by name.",
+      "category": "semantic",
+      "agent_id": "{{agentId}}"
+    },
+    {
+      "messages": "Session focused on debugging Docker networking issues.",
+      "category": "episodic",
+      "session_id": "{{sessionId}}"
+    }
+  ]
+}
+
+### Batch add with TTL
+POST {{baseUrl}}/ltm/memories/batch/add
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "messages": "User is working on a deadline — project due Friday.",
+      "category": "episodic",
+      "user_id": "{{userId}}",
+      "ttl_seconds": 604800
+    },
+    {
+      "messages": "Temporary context: user is on mobile, prefer shorter responses.",
+      "category": "preference",
+      "user_id": "{{userId}}",
+      "ttl_seconds": 3600
+    }
+  ]
+}
+
+### Batch add with custom metadata
+POST {{baseUrl}}/ltm/memories/batch/add
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "messages": "User completed the React tutorial series.",
+      "category": "episodic",
+      "user_id": "{{userId}}",
+      "metadata": {
+        "source": "tutorial",
+        "framework": "react"
+      }
+    },
+    {
+      "messages": "User bookmarked the FastAPI deployment guide.",
+      "category": "episodic",
+      "user_id": "{{userId}}",
+      "metadata": {
+        "source": "bookmark",
+        "framework": "fastapi"
+      }
+    }
+  ]
+}
+
+### Batch add — empty list (edge case)
+POST {{baseUrl}}/ltm/memories/batch/add
+Content-Type: application/json
+
+{
+  "items": []
+}
+
+### Batch add — validation error: missing scope (should return 422)
+POST {{baseUrl}}/ltm/memories/batch/add
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "messages": "This item has no scope and should cause validation error.",
+      "category": "fact"
+    }
+  ]
+}
+
+### --- Batch Search ---
+
+### Batch search multiple queries
+POST {{baseUrl}}/ltm/memories/batch/search
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "query": "What programming languages does the user know?",
+      "user_id": "{{userId}}"
+    },
+    {
+      "query": "What are the user's hobbies?",
+      "user_id": "{{userId}}"
+    },
+    {
+      "query": "What happened in the last session?",
+      "session_id": "{{sessionId}}"
+    }
+  ]
+}
+
+### Batch search with category filters
+POST {{baseUrl}}/ltm/memories/batch/search
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "query": "user preferences",
+      "user_id": "{{userId}}",
+      "categories": ["preference"]
+    },
+    {
+      "query": "user facts",
+      "user_id": "{{userId}}",
+      "categories": ["fact"]
+    }
+  ]
+}
+
+### Batch search with limits
+POST {{baseUrl}}/ltm/memories/batch/search
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "query": "everything about the user",
+      "user_id": "{{userId}}",
+      "limit": 3
+    },
+    {
+      "query": "agent guidelines",
+      "agent_id": "{{agentId}}",
+      "limit": 5
+    }
+  ]
+}
+
+### --- Batch Delete ---
+### (Replace IDs with actual memory IDs from add/list responses)
+
+### Batch delete multiple memories
+POST {{baseUrl}}/ltm/memories/batch/delete
+Content-Type: application/json
+
+{
+  "memory_ids": [
+    "{{memoryId1}}",
+    "{{memoryId2}}",
+    "{{memoryId3}}"
+  ]
+}
+
+### Batch delete single memory
+POST {{baseUrl}}/ltm/memories/batch/delete
+Content-Type: application/json
+
+{
+  "memory_ids": [
+    "{{memoryId}}"
+  ]
+}
+
+### Batch delete — empty list (edge case)
+POST {{baseUrl}}/ltm/memories/batch/delete
+Content-Type: application/json
+
+{
+  "memory_ids": []
+}
