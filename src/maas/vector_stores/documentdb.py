@@ -8,7 +8,7 @@ with the ``cosmosSearch`` syntax supported by Azure Cosmos DB for MongoDB
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, ClassVar
 
 from mem0.vector_stores.base import VectorStoreBase
 from pydantic import BaseModel
@@ -50,6 +50,20 @@ class AzureDocumentDB(VectorStoreBase):
     SIMILARITY_METRIC = "COS"
     INDEX_KIND = "vector-hnsw"
 
+    # mem0 filter operators → MongoDB query operators.
+    _OPERATOR_MAP: ClassVar[dict[str, str]] = {
+        "eq": "$eq",
+        "ne": "$ne",
+        "in": "$in",
+        "nin": "$nin",
+        "gt": "$gt",
+        "gte": "$gte",
+        "lt": "$lt",
+        "lte": "$lte",
+        "contains": "$regex",
+        "icontains": "$regex",
+    }
+
     def __init__(
         self,
         db_name: str,
@@ -64,6 +78,34 @@ class AzureDocumentDB(VectorStoreBase):
         self.client = MongoClient(mongo_uri)
         self.db = self.client[db_name]
         self.collection = self.create_col()
+
+    # ------------------------------------------------------------------
+    # Filter translation helpers
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def _translate_filter_value(cls, value: Any) -> Any:
+        """Translate a mem0-style filter value to a MongoDB query expression.
+
+        mem0 uses ``{"in": ["a", "b"]}`` while MongoDB expects
+        ``{"$in": ["a", "b"]}``.  Scalar values are returned as-is.
+        """
+        if not isinstance(value, dict):
+            return value
+        translated: dict[str, Any] = {}
+        for op, operand in value.items():
+            mongo_op = cls._OPERATOR_MAP.get(op)
+            if mongo_op is None:
+                # Not a known operator — pass through unchanged (may be a
+                # nested document match).
+                translated[op] = operand
+                continue
+            if op == "icontains":
+                translated[mongo_op] = operand
+                translated["$options"] = "i"
+            else:
+                translated[mongo_op] = operand
+        return translated
 
     # ------------------------------------------------------------------
     # Collection / index management
@@ -186,8 +228,11 @@ class AzureDocumentDB(VectorStoreBase):
         ]
 
         # Post-filter on payload fields (same approach as Atlas adapter).
+        # Translate mem0 filter operators (e.g. "in") to MongoDB ("$in").
         if filters:
-            conditions = [{"document.payload." + key: value} for key, value in filters.items()]
+            conditions = [
+                {"document.payload." + key: self._translate_filter_value(value)} for key, value in filters.items()
+            ]
             if conditions:
                 pipeline.append({"$match": {"$and": conditions}})
 
@@ -265,7 +310,7 @@ class AzureDocumentDB(VectorStoreBase):
         try:
             query: dict[str, Any] = {}
             if filters:
-                conditions = [{"payload." + key: value} for key, value in filters.items()]
+                conditions = [{"payload." + key: self._translate_filter_value(value)} for key, value in filters.items()]
                 if conditions:
                     query = {"$and": conditions}
 
@@ -335,12 +380,56 @@ class AzureDocumentDB(VectorStoreBase):
 # ---------------------------------------------------------------------------
 
 
+class AzureDocumentDBConfig(BaseModel):
+    """Pydantic config consumed by mem0's ``VectorStoreConfig`` validator.
+
+    Field names must match the ``AzureDocumentDB.__init__`` signature so
+    mem0 can forward them when instantiating the vector store.
+    """
+
+    db_name: str = "mem0_db"
+    collection_name: str = "mem0"
+    embedding_model_dims: int | None = 1536
+    mongo_uri: str = "mongodb://localhost:27017"
+
+
 def register_documentdb_vector_store() -> None:
-    """Register ``AzureDocumentDB`` with mem0's ``VectorStoreFactory``.
+    """Register ``AzureDocumentDB`` with mem0's ``VectorStoreFactory`` **and**
+    ``VectorStoreConfig`` validator.
 
     Must be called **before** any ``mem0.AsyncMemory.from_config()`` that
     uses the ``azure_documentdb`` provider.
-    """
-    from mem0.utils.factory import VectorStoreFactory
 
+    Two registrations are required because mem0 validates providers in two
+    independent locations:
+
+    1. ``VectorStoreFactory.provider_to_class`` — used at runtime to
+       instantiate the vector store class.
+    2. ``VectorStoreConfig._provider_configs`` — checked during pydantic
+       model validation of ``MemoryConfig``.  The validator also does
+       ``__import__("mem0.configs.vector_stores.<provider>")`` to load a
+       config pydantic model, so we inject a synthetic module into
+       ``sys.modules`` containing ``AzureDocumentDBConfig``.
+    """
+    import sys
+    import types
+
+    from mem0.utils.factory import VectorStoreFactory
+    from mem0.vector_stores.configs import VectorStoreConfig
+
+    # 1. Factory registration (runtime instantiation)
     VectorStoreFactory.provider_to_class["azure_documentdb"] = "maas.vector_stores.documentdb.AzureDocumentDB"
+
+    # 2. Config validation registration
+    #    ``_provider_configs`` is a pydantic ``ModelPrivateAttr`` at the class
+    #    level, so we must mutate ``.default`` (the underlying dict) rather
+    #    than subscript the descriptor directly.
+    VectorStoreConfig._provider_configs.default["azure_documentdb"] = "AzureDocumentDBConfig"
+
+    # 3. Synthetic module so ``__import__("mem0.configs.vector_stores.azure_documentdb")``
+    #    finds ``AzureDocumentDBConfig`` without writing to the filesystem.
+    module_path = "mem0.configs.vector_stores.azure_documentdb"
+    if module_path not in sys.modules:
+        mod = types.ModuleType(module_path)
+        mod.AzureDocumentDBConfig = AzureDocumentDBConfig  # type: ignore[attr-defined]
+        sys.modules[module_path] = mod

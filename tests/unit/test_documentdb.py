@@ -333,7 +333,20 @@ class TestAzureDocumentDBReset:
 def test_register_documentdb_vector_store() -> None:
     register_documentdb_vector_store()
 
-    from mem0.utils.factory import VectorStoreFactory
+    import sys
 
+    from mem0.utils.factory import VectorStoreFactory
+    from mem0.vector_stores.configs import VectorStoreConfig
+
+    # Factory registration (runtime instantiation)
     assert "azure_documentdb" in VectorStoreFactory.provider_to_class
     assert VectorStoreFactory.provider_to_class["azure_documentdb"] == "maas.vector_stores.documentdb.AzureDocumentDB"
+
+    # Config validation registration (pydantic model_validator)
+    assert "azure_documentdb" in VectorStoreConfig._provider_configs.default
+    assert VectorStoreConfig._provider_configs.default["azure_documentdb"] == "AzureDocumentDBConfig"
+
+    # Synthetic module for dynamic __import__ in validator
+    assert "mem0.configs.vector_stores.azure_documentdb" in sys.modules
+    mod = sys.modules["mem0.configs.vector_stores.azure_documentdb"]
+    assert hasattr(mod, "AzureDocumentDBConfig")
