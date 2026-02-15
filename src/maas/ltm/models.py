@@ -43,12 +43,13 @@ class UpdateMemoryRequest(BaseModel):
 
 
 class MemoryResponse(BaseModel):
-    id: str
+    id: str | None = None
     memory: str
     metadata: dict[str, Any] | None = None
     created_at: str | None = None
     updated_at: str | None = None
     score: float | None = None
+    event: str | None = None
 
 
 class MemoryListResponse(BaseModel):

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
@@ -125,39 +125,16 @@ async def test_get_all_filters_expired() -> None:
 
 
 @pytest.mark.unit
-async def test_get_all_unfiltered_returns_all() -> None:
-    past_time = int(time.time()) - 3600
-    future_time = int(time.time()) + 3600
-    memory = AsyncMock()
-    memory.get_all = AsyncMock(
-        return_value={
-            "results": [
-                {"id": "1", "metadata": {"expires_at": past_time}},
-                {"id": "2", "metadata": {"expires_at": future_time}},
-            ]
-        }
-    )
-    service = LTMService(memory)
-
-    result = await service._get_all_unfiltered(user_id="user-1")
-
-    assert len(result["results"]) == 2
-
-
-@pytest.mark.unit
 async def test_delete_expired() -> None:
-    past_time = int(time.time()) - 3600
-    future_time = int(time.time()) + 3600
     memory = AsyncMock()
-    memory.get_all = AsyncMock(
-        return_value={
-            "results": [
-                {"id": "1", "metadata": {"expires_at": past_time}},
-                {"id": "2", "metadata": {"expires_at": future_time}},
-                {"id": "3", "metadata": {"expires_at": past_time}},
-            ]
-        }
-    )
+    # The new delete_expired() queries the vector store directly.
+    mock_collection = MagicMock()
+    mock_collection.find.return_value = [
+        {"_id": "1"},
+        {"_id": "3"},
+    ]
+    memory.vector_store = MagicMock()
+    memory.vector_store.collection = mock_collection
     memory.delete = AsyncMock(return_value={"deleted": True})
     service = LTMService(memory)
 

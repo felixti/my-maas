@@ -20,13 +20,21 @@ class LTMService:
         ttl = request.ttl_seconds if request.ttl_seconds is not None else self._default_ttl_seconds
         if ttl > 0:
             metadata["expires_at"] = int(time.time()) + ttl
-        return await self._memory.add(
+        raw = await self._memory.add(
             messages=request.messages,
             user_id=request.user_id,
             agent_id=request.agent_id,
             run_id=request.session_id,
             metadata=metadata,
         )
+        # mem0 >= 1.0 returns {"results": [{"id": ..., "memory": ..., "event": ...}]}.
+        # Unwrap so callers receive a flat single-memory dict.
+        # An empty results list means mem0 detected a duplicate — nothing new was stored.
+        if isinstance(raw, dict) and "results" in raw:
+            if raw["results"]:
+                return raw["results"][0]
+            return {"id": None, "memory": "", "event": "NOOP"}
+        return raw
 
     @staticmethod
     def _is_expired(item: dict) -> bool:
@@ -71,31 +79,39 @@ class LTMService:
             result["results"] = [r for r in result["results"] if not self._is_expired(r)]
         return result
 
-    async def _get_all_unfiltered(
-        self,
-        user_id: str | None = None,
-        agent_id: str | None = None,
-        session_id: str | None = None,
-        limit: int = 100,
-    ) -> dict:
-        return await self._memory.get_all(
-            user_id=user_id,
-            agent_id=agent_id,
-            run_id=session_id,
-            limit=limit,
-        )
+    async def update(self, memory_id: str, data: str) -> dict:
+        await self._memory.update(memory_id, data)
+        # mem0's update() only returns {"message": "..."}, so re-fetch
+        # the full memory to satisfy the MemoryResponse contract.
+        return await self.get(memory_id)
 
     async def delete_expired(self) -> dict:
-        all_memories = await self._get_all_unfiltered(limit=10000)
-        expired_ids = [m["id"] for m in (all_memories.get("results") or []) if self._is_expired(m)]
+        """Delete all memories whose ``expires_at`` timestamp has passed.
+
+        We bypass ``mem0.get_all()`` (which requires a scope filter) and
+        query the underlying vector store directly for documents that
+        carry an ``expires_at`` payload field in the past.
+        """
+        now = int(time.time())
+        try:
+            # Access the vector store directly — it's a pymongo-backed store.
+            vs = self._memory.vector_store
+            cursor = vs.collection.find(
+                {"payload.expires_at": {"$lte": now}},
+                {"_id": 1},
+            )
+            expired_ids: list[str] = [str(doc["_id"]) for doc in cursor]
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).exception("Failed to query expired memories from vector store")
+            expired_ids = []
+
         deleted = 0
         for memory_id in expired_ids:
             await self._memory.delete(memory_id)
             deleted += 1
         return {"deleted": deleted, "ids": expired_ids}
-
-    async def update(self, memory_id: str, data: str) -> dict:
-        return await self._memory.update(memory_id, data)
 
     async def delete(self, memory_id: str) -> dict:
         return await self._memory.delete(memory_id)
