@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from maas.config import EmbeddingProvider, LLMProvider, Settings, VectorStoreProvider
+from maas.config import EmbeddingProvider, LLMProvider, Settings, VectorIndexType, VectorStoreProvider
 from maas.ltm.config import build_mem0_config
 from maas.ltm.models import AddMemoryRequest, MemoryCategory, SearchMemoryRequest
 from maas.ltm.service import LTMService
@@ -178,3 +178,17 @@ def test_build_mem0_config_azure_openai_provider() -> None:
     assert config["embedder"]["config"]["azure_kwargs"]["azure_deployment"] == "text-embedding-3-small"
     assert config["embedder"]["config"]["azure_kwargs"]["azure_endpoint"] == "https://my-resource.openai.azure.com"
     assert "api_key" not in config["embedder"]["config"]
+
+
+@pytest.mark.unit
+def test_build_mem0_config_includes_index_type() -> None:
+    settings = Settings(
+        llm_api_key="test-key",
+        embedding_api_key="test-key",
+        vector_index_type=VectorIndexType.HNSW,
+    )
+
+    config = build_mem0_config(settings)
+
+    assert "index_type" in config["vector_store"]["config"]
+    assert config["vector_store"]["config"]["index_type"] == "hnsw"

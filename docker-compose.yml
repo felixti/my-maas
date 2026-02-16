@@ -33,6 +33,7 @@ services:
     environment:
       USERNAME: maas
       PASSWORD: maasdevpass
+      SKIP_INIT_DATA: "true"
     volumes:
       - documentdb_data:/data
     healthcheck:

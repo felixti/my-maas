@@ -1,0 +1,65 @@
+Task 4: Index Type Parameterization Tests
+==========================================
+
+COMPLETED: Added 8 new parameterized unit tests for DiskANN and HNSW index types
+
+Test Files Modified:
+-------------------
+1. tests/unit/test_documentdb.py: Added 7 tests in TestAzureDocumentDBIndexType class
+2. tests/unit/test_ltm_service.py: Added 1 test for config flow validation
+
+New Tests in test_documentdb.py:
+--------------------------------
+1. test_ensure_vector_index_diskann_params
+   - Verifies DiskANN cosmosSearchOptions: kind="vector-diskann", maxDegree=32, lBuild=50
+   - Asserts HNSW params (m, efConstruction) are NOT present
+
+2. test_ensure_vector_index_hnsw_params
+   - Verifies HNSW cosmosSearchOptions: kind="vector-hnsw", m=16, efConstruction=64
+   - Asserts DiskANN params (maxDegree, lBuild) are NOT present
+
+3. test_search_diskann_uses_l_search
+   - Verifies search pipeline cosmosSearch contains lSearch=40
+   - Asserts efSearch is NOT present
+
+4. test_search_hnsw_uses_ef_search
+   - Verifies search pipeline cosmosSearch contains efSearch=40
+   - Asserts lSearch is NOT present
+
+5. test_index_mismatch_logs_warning
+   - Mocks existing index with kind="vector-hnsw"
+   - Creates store with index_type="diskann"
+   - Asserts warning logged with "Drop and recreate" message
+
+6. test_invalid_index_type_raises_value_error
+   - Attempts to create store with index_type="ivf"
+   - Asserts ValueError raised with correct message
+
+7. test_default_index_type_is_diskann
+   - Creates store without index_type parameter
+   - Asserts default is "diskann"
+   - Verifies createIndexes used DiskANN params
+
+New Test in test_ltm_service.py:
+---------------------------------
+8. test_build_mem0_config_includes_index_type
+   - Creates Settings with vector_index_type=VectorIndexType.HNSW
+   - Calls build_mem0_config()
+   - Asserts config["vector_store"]["config"]["index_type"] == "hnsw"
+
+Test Results:
+------------
+- Total unit tests: 93 (85 existing + 8 new)
+- All tests passed: 93/93 ✓
+- Test coverage: DiskANN/HNSW params, search runtime selection, mismatch detection, validation, defaults, config flow
+
+Verification:
+------------
+- LSP diagnostics clean on modified files (lines 346-347 errors are pre-existing in registration test)
+- All new tests follow existing patterns (pytest.mark.asyncio, mock.patch, MagicMock)
+- Tests verify both positive (has correct param) and negative (does NOT have wrong param) cases
+- Evidence captured to .sisyphus/evidence/task-4-*.txt
+
+Next Steps:
+----------
+Task 5 can now proceed (integration tests + end-to-end validation)

@@ -39,6 +39,11 @@ class VectorStoreProvider(StrEnum):
     AZURE_DOCUMENTDB = "azure_documentdb"
 
 
+class VectorIndexType(StrEnum):
+    DISKANN = "diskann"
+    HNSW = "hnsw"
+
+
 PROVIDER_BASE_URLS: dict[LLMProvider, str] = {
     LLMProvider.OPENAI: "https://api.openai.com/v1",
     LLMProvider.GROK: "https://api.x.ai/v1",
@@ -88,6 +93,10 @@ class Settings(BaseSettings):
     mongodb_db_name: str = "maas"
     mongodb_collection_name: str = "memories"
     vector_store_provider: VectorStoreProvider = VectorStoreProvider.MONGODB
+    vector_index_type: VectorIndexType = Field(
+        default=VectorIndexType.DISKANN,
+        description="Vector index type: diskann or hnsw",
+    )
 
     otel_exporter_otlp_endpoint: str = "http://localhost:4318"
     otel_service_name: str = "my-maas"

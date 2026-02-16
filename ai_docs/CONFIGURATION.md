@@ -74,10 +74,15 @@ If `LLM_BASE_URL` is set, it takes precedence over the provider lookup.
 | `MONGODB_DB_NAME` | string | `maas` | Database name |
 | `MONGODB_COLLECTION_NAME` | string | `memories` | Collection name |
 | `VECTOR_STORE_PROVIDER` | enum | `mongodb` | Vector store backend |
+| `VECTOR_INDEX_TYPE` | enum | `diskann` | Vector index type (`diskann` or `hnsw`) |
 
 **Vector store providers:**
 - `mongodb` — Uses mem0's built-in Atlas MongoDB adapter with `$vectorSearch`
 - `azure_documentdb` — Uses custom `AzureDocumentDB` adapter with `cosmosSearch`
+
+**Vector index types:**
+- `diskann` — DiskANN graph index, optimized for large datasets (500K+ vectors)
+- `hnsw` — HNSW graph index, suitable for smaller datasets (up to 50K vectors)
 
 ### Observability
 
@@ -145,7 +150,7 @@ LANGFUSE_BASE_URL=https://your-langfuse.example.com
 - TLS enabled (included in connection string)
 - SCRAM-SHA-256 authentication
 - `retrywrites=false` (DocumentDB doesn't support retryable writes)
-- HNSW vector index auto-created on first startup
+- Vector index auto-created on first startup (type controlled by VECTOR_INDEX_TYPE)
 
 ---
 

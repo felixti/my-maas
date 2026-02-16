@@ -1,0 +1,5 @@
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 93 passed, 103 warnings in 3.55s =======================
+Failed to export metrics batch code: 404, reason: 404 page not found
+

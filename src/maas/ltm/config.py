@@ -82,6 +82,7 @@ def build_mem0_config(settings: Settings) -> dict:
                 "db_name": settings.mongodb_db_name,
                 "collection_name": settings.mongodb_collection_name,
                 "embedding_model_dims": settings.embedding_dims,
+                "index_type": settings.vector_index_type.value,
             },
         },
         "version": "v1.1",

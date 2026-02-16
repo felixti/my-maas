@@ -163,6 +163,14 @@ Both providers use the same document structure:
 | `similarity` | `COS` | Cosine similarity metric |
 | `dimensions` | From `EMBEDDING_DIMS` | Must match embedding model output |
 
+### DiskANN Index Parameters
+
+| Parameter | DiskANN Default | Range | Description |
+|-----------|----------------|-------|-------------|
+| `maxDegree` | 32 | 20-2048 | Graph degree |
+| `lBuild` | 50 | 10-500 | Build quality |
+| `lSearch` | 40 | 10-1000 | Search quality |
+
 ### Test Coverage
 
 20 unit tests across 5 test classes:

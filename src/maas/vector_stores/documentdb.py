@@ -8,7 +8,7 @@ with the ``cosmosSearch`` syntax supported by Azure Cosmos DB for MongoDB
 from __future__ import annotations
 
 import logging
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from mem0.vector_stores.base import VectorStoreBase
 from pydantic import BaseModel
@@ -33,6 +33,9 @@ class OutputData(BaseModel):
 # DocumentDB vector store
 # ---------------------------------------------------------------------------
 
+_DEFAULT_DISKANN_MAX_DEGREE = 32
+_DEFAULT_DISKANN_L_BUILD = 50
+_DEFAULT_DISKANN_L_SEARCH = 40
 _DEFAULT_HNSW_M = 16
 _DEFAULT_HNSW_EF_CONSTRUCTION = 64
 _DEFAULT_HNSW_EF_SEARCH = 40
@@ -42,14 +45,12 @@ class AzureDocumentDB(VectorStoreBase):
     """mem0-compatible vector store backed by Azure Cosmos DB for MongoDB.
 
     Uses the ``cosmosSearch`` aggregation operator for vector similarity
-    search and ``db.command("createIndexes", …)`` for HNSW index creation.
+    search and ``db.command("createIndexes", …)`` for vector index creation.
     All standard CRUD operations use plain pymongo calls which are fully
     compatible with the MongoDB wire protocol exposed by DocumentDB.
     """
 
     SIMILARITY_METRIC = "COS"
-    INDEX_KIND = "vector-hnsw"
-
     # mem0 filter operators → MongoDB query operators.
     _OPERATOR_MAP: ClassVar[dict[str, str]] = {
         "eq": "$eq",
@@ -70,10 +71,18 @@ class AzureDocumentDB(VectorStoreBase):
         collection_name: str,
         embedding_model_dims: int,
         mongo_uri: str,
+        index_type: str = "diskann",
     ) -> None:
+        normalized_index_type = index_type.lower()
+        if normalized_index_type not in {"diskann", "hnsw"}:
+            msg = "index_type must be either 'diskann' or 'hnsw'"
+            raise ValueError(msg)
+
         self.db_name = db_name
         self.collection_name = collection_name
         self.embedding_model_dims = embedding_model_dims
+        self.index_type = normalized_index_type
+        self.index_kind = f"vector-{normalized_index_type}"
 
         self.client = MongoClient(mongo_uri)
         self.db = self.client[db_name]
@@ -112,7 +121,7 @@ class AzureDocumentDB(VectorStoreBase):
     # ------------------------------------------------------------------
 
     def create_col(self) -> Any:
-        """Create the collection and ensure the HNSW vector index exists."""
+        """Create the collection and ensure the vector index exists."""
         try:
             database = self.client[self.db_name]
             collection_names = database.list_collection_names()
@@ -136,15 +145,28 @@ class AzureDocumentDB(VectorStoreBase):
             return None
 
     def _ensure_vector_index(self, database: Any) -> None:
-        """Create the HNSW cosmosSearch index if it doesn't already exist."""
+        """Create the configured cosmosSearch index if it doesn't already exist."""
         try:
             result = database.command("listIndexes", self.collection_name)
-            existing = [idx["name"] for idx in result["cursor"]["firstBatch"]]
+            existing_indexes = result["cursor"]["firstBatch"]
         except PyMongoError:
             # Collection may have just been created; no indexes yet.
-            existing = []
+            existing_indexes = []
 
-        if self.index_name in existing:
+        existing_index = next((idx for idx in existing_indexes if idx.get("name") == self.index_name), None)
+        if existing_index is not None:
+            existing_kind = existing_index.get("cosmosSearchOptions", {}).get("kind")
+            if existing_kind is not None and existing_kind != self.index_kind:
+                logger.warning(
+                    (
+                        "Vector index '%s' exists with kind '%s' but configured kind is '%s'. "
+                        "Drop and recreate the index to switch types"
+                    ),
+                    self.index_name,
+                    existing_kind,
+                    self.index_kind,
+                )
+
             logger.info(
                 "Vector index '%s' already exists on '%s'.",
                 self.index_name,
@@ -152,16 +174,27 @@ class AzureDocumentDB(VectorStoreBase):
             )
             return
 
-        index_def = {
-            "name": self.index_name,
-            "key": {"embedding": "cosmosSearch"},
-            "cosmosSearchOptions": {
-                "kind": self.INDEX_KIND,
+        if self.index_type == "diskann":
+            cosmos_search_options: dict[str, Any] = {
+                "kind": self.index_kind,
+                "maxDegree": _DEFAULT_DISKANN_MAX_DEGREE,
+                "lBuild": _DEFAULT_DISKANN_L_BUILD,
+                "similarity": self.SIMILARITY_METRIC,
+                "dimensions": self.embedding_model_dims,
+            }
+        else:
+            cosmos_search_options = {
+                "kind": self.index_kind,
                 "m": _DEFAULT_HNSW_M,
                 "efConstruction": _DEFAULT_HNSW_EF_CONSTRUCTION,
                 "similarity": self.SIMILARITY_METRIC,
                 "dimensions": self.embedding_model_dims,
-            },
+            }
+
+        index_def = {
+            "name": self.index_name,
+            "key": {"embedding": "cosmosSearch"},
+            "cosmosSearchOptions": cosmos_search_options,
         }
         database.command(
             "createIndexes",
@@ -219,7 +252,9 @@ class AzureDocumentDB(VectorStoreBase):
                         "vector": vectors,
                         "path": "embedding",
                         "k": limit,
-                        "efSearch": _DEFAULT_HNSW_EF_SEARCH,
+                        ("lSearch" if self.index_type == "diskann" else "efSearch"): _DEFAULT_DISKANN_L_SEARCH
+                        if self.index_type == "diskann"
+                        else _DEFAULT_HNSW_EF_SEARCH,
                     },
                     "returnStoredSource": True,
                 },
@@ -391,6 +426,7 @@ class AzureDocumentDBConfig(BaseModel):
     collection_name: str = "mem0"
     embedding_model_dims: int | None = 1536
     mongo_uri: str = "mongodb://localhost:27017"
+    index_type: str = "diskann"
 
 
 def register_documentdb_vector_store() -> None:
@@ -424,12 +460,13 @@ def register_documentdb_vector_store() -> None:
     #    ``_provider_configs`` is a pydantic ``ModelPrivateAttr`` at the class
     #    level, so we must mutate ``.default`` (the underlying dict) rather
     #    than subscript the descriptor directly.
-    VectorStoreConfig._provider_configs.default["azure_documentdb"] = "AzureDocumentDBConfig"
+    provider_configs = cast("Any", VectorStoreConfig._provider_configs)
+    provider_configs.default["azure_documentdb"] = "AzureDocumentDBConfig"
 
     # 3. Synthetic module so ``__import__("mem0.configs.vector_stores.azure_documentdb")``
     #    finds ``AzureDocumentDBConfig`` without writing to the filesystem.
     module_path = "mem0.configs.vector_stores.azure_documentdb"
     if module_path not in sys.modules:
         mod = types.ModuleType(module_path)
-        mod.AzureDocumentDBConfig = AzureDocumentDBConfig  # type: ignore[attr-defined]
+        mod.__dict__["AzureDocumentDBConfig"] = AzureDocumentDBConfig
         sys.modules[module_path] = mod

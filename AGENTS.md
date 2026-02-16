@@ -176,6 +176,7 @@ All config via `.env` — see `.env.example` for complete list. Key variables:
 | `REDIS_URL` | STM backend |
 | `MONGODB_URI` | LTM backend (DocumentDB Local for dev, Azure DocumentDB for prod) |
 | `VECTOR_STORE_PROVIDER` | `mongodb` (dev) or `azure_documentdb` (prod) |
+| `VECTOR_INDEX_TYPE` | `diskann` (default) or `hnsw` — Vector index type for scaling |
 | `STM_SESSION_TTL_SECONDS` | STM session TTL (0=disabled, default 86400) |
 | `LTM_DEFAULT_TTL_SECONDS` | LTM memory TTL (0=disabled, default 0) |
 | `LTM_MAX_BATCH_SIZE` | Max items per batch request (default 50) |
@@ -200,3 +201,4 @@ All config via `.env` — see `.env.example` for complete list. Key variables:
 - **mem0 `VectorStoreConfig._provider_configs`** is a pydantic v2 `ModelPrivateAttr` — must use `.default` dict for registration, not direct assignment
 - **mem0 `AsyncMemory.add()`** returns `{"results": [...]}` — `LTMService.add()` unwraps the first result
 - **mem0 `update()`** only returns `{"message": "..."}` — `LTMService.update()` re-fetches to return updated memory
+- **Switching VECTOR_INDEX_TYPE requires dropping and recreating the vector index** — DiskANN and HNSW are incompatible; use `DELETE /memories/expired` to clear old indexes and restart

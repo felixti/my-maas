@@ -1,0 +1,20 @@
+VALIDATION TEST RESULTS
+========================
+
+1. VectorIndexType enum values:
+   ✓ VectorIndexType.DISKANN = diskann
+   ✓ VectorIndexType.HNSW = hnsw
+
+2. Invalid enum value rejection:
+   ✓ Invalid value raises ValueError: 'invalid' is not a valid VectorIndexType
+
+3. Settings default value:
+   ✓ Settings.vector_index_type = diskann
+
+4. Config plumbing:
+   ✓ Config index_type = diskann
+
+5. AzureDocumentDBConfig field:
+   ✓ AzureDocumentDBConfig.index_type = diskann
+
+SUMMARY: All validations passed ✓

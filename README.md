@@ -170,6 +170,7 @@ All configuration is via environment variables (loaded from `.env`).
 | Variable | Default | Description |
 |---|---|---|
 | `VECTOR_STORE_PROVIDER` | `mongodb` | Vector store backend (`mongodb` for DocumentDB Local, `azure_documentdb` for Azure DocumentDB) |
+| `VECTOR_INDEX_TYPE` | `diskann` | Vector index type (`diskann` for scaling to 500K+, `hnsw` for legacy up to 50K) |
 | `MONGODB_URI` | `mongodb://localhost:10260/?tls=true&tlsAllowInvalidCertificates=true&authMechanism=SCRAM-SHA-256&retrywrites=false` | MongoDB/DocumentDB connection URI (DocumentDB Local includes TLS params by default) |
 | `MONGODB_DB_NAME` | `maas` | Database name |
 | `MONGODB_COLLECTION_NAME` | `memories` | Collection name |
@@ -215,7 +216,7 @@ For local development, DocumentDB Local is used as the LTM backend with the same
 | Vector search | `$vectorSearch` aggregation stage | `$search` with `cosmosSearch` operator |
 | Index creation | `SearchIndexModel` API | `db.command("createIndexes")` with `cosmosSearch` key type |
 | Score metadata | `$meta: "vectorSearchScore"` | `$meta: "searchScore"` |
-| Index type | `vectorSearch` | `vector-hnsw` (HNSW graph) |
+| Index type | `vectorSearch` | Configurable (`vector-diskann` or `vector-hnsw`) |
 
 ### Configuration for Azure DocumentDB:
 
@@ -230,7 +231,7 @@ EMBEDDING_DIMS=1536  # Must match your embedding model's dimensions
 
 **Note on DocumentDB Local**: The same `azure_documentdb` adapter works with DocumentDB Local during development. The default `MONGODB_URI` in `.env` is pre-configured for DocumentDB Local on port 10260 with required TLS parameters. For production Azure DocumentDB, simply update `MONGODB_URI` to your cloud cluster endpoint.
 
-The adapter automatically creates HNSW vector indexes with cosine similarity on first startup. All CRUD operations use standard pymongo and work identically across both providers.
+The adapter automatically creates vector indexes (DiskANN by default, configurable via `VECTOR_INDEX_TYPE`) with cosine similarity on first startup. All CRUD operations use standard pymongo and work identically across both providers.
 
 ## Docker
 

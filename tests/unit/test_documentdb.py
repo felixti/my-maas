@@ -350,3 +350,180 @@ def test_register_documentdb_vector_store() -> None:
     assert "mem0.configs.vector_stores.azure_documentdb" in sys.modules
     mod = sys.modules["mem0.configs.vector_stores.azure_documentdb"]
     assert hasattr(mod, "AzureDocumentDBConfig")
+
+
+# ---------------------------------------------------------------------------
+# Index Type Configuration
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+@pytest.mark.usefixtures("mock_mongo_client")
+class TestAzureDocumentDBIndexType:
+    def test_ensure_vector_index_diskann_params(self, mock_mongo_client: tuple) -> None:
+        _client, mock_db, _collection = mock_mongo_client
+        mock_db.command.return_value = {"cursor": {"firstBatch": []}}
+
+        AzureDocumentDB(
+            db_name="testdb",
+            collection_name="vecs",
+            embedding_model_dims=1536,
+            mongo_uri="mongodb://localhost:27017",
+            index_type="diskann",
+        )
+
+        # Find createIndexes call
+        create_calls = [c for c in mock_db.command.call_args_list if c.args[0] == "createIndexes"]
+        assert len(create_calls) == 1
+        call_args = create_calls[0]
+        indexes = call_args.kwargs["indexes"]
+        assert len(indexes) == 1
+        cosmos_opts = indexes[0]["cosmosSearchOptions"]
+
+        # Assert DiskANN params present
+        assert cosmos_opts["kind"] == "vector-diskann"
+        assert cosmos_opts["maxDegree"] == 32
+        assert cosmos_opts["lBuild"] == 50
+        assert cosmos_opts["similarity"] == "COS"
+        assert cosmos_opts["dimensions"] == 1536
+
+        # Assert HNSW params NOT present
+        assert "m" not in cosmos_opts
+        assert "efConstruction" not in cosmos_opts
+
+    def test_ensure_vector_index_hnsw_params(self, mock_mongo_client: tuple) -> None:
+        _client, mock_db, _collection = mock_mongo_client
+        mock_db.command.return_value = {"cursor": {"firstBatch": []}}
+
+        AzureDocumentDB(
+            db_name="testdb",
+            collection_name="vecs",
+            embedding_model_dims=1536,
+            mongo_uri="mongodb://localhost:27017",
+            index_type="hnsw",
+        )
+
+        # Find createIndexes call
+        create_calls = [c for c in mock_db.command.call_args_list if c.args[0] == "createIndexes"]
+        assert len(create_calls) == 1
+        call_args = create_calls[0]
+        indexes = call_args.kwargs["indexes"]
+        assert len(indexes) == 1
+        cosmos_opts = indexes[0]["cosmosSearchOptions"]
+
+        # Assert HNSW params present
+        assert cosmos_opts["kind"] == "vector-hnsw"
+        assert cosmos_opts["m"] == 16
+        assert cosmos_opts["efConstruction"] == 64
+        assert cosmos_opts["similarity"] == "COS"
+        assert cosmos_opts["dimensions"] == 1536
+
+        # Assert DiskANN params NOT present
+        assert "maxDegree" not in cosmos_opts
+        assert "lBuild" not in cosmos_opts
+
+    def test_search_diskann_uses_l_search(self, mock_mongo_client: tuple) -> None:
+        _client, _db, _collection = mock_mongo_client
+        store = AzureDocumentDB(
+            db_name="testdb",
+            collection_name="vecs",
+            embedding_model_dims=3,
+            mongo_uri="mongodb://localhost:27017",
+            index_type="diskann",
+        )
+        store.collection.aggregate.return_value = []
+
+        store.search(query="test", vectors=[0.1, 0.2, 0.3], limit=5)
+
+        pipeline = store.collection.aggregate.call_args.args[0]
+        cosmos_search = pipeline[0]["$search"]["cosmosSearch"]
+
+        # Assert lSearch present, efSearch NOT present
+        assert "lSearch" in cosmos_search
+        assert cosmos_search["lSearch"] == 40
+        assert "efSearch" not in cosmos_search
+
+    def test_search_hnsw_uses_ef_search(self, mock_mongo_client: tuple) -> None:
+        _client, _db, _collection = mock_mongo_client
+        store = AzureDocumentDB(
+            db_name="testdb",
+            collection_name="vecs",
+            embedding_model_dims=3,
+            mongo_uri="mongodb://localhost:27017",
+            index_type="hnsw",
+        )
+        store.collection.aggregate.return_value = []
+
+        store.search(query="test", vectors=[0.1, 0.2, 0.3], limit=5)
+
+        pipeline = store.collection.aggregate.call_args.args[0]
+        cosmos_search = pipeline[0]["$search"]["cosmosSearch"]
+
+        # Assert efSearch present, lSearch NOT present
+        assert "efSearch" in cosmos_search
+        assert cosmos_search["efSearch"] == 40
+        assert "lSearch" not in cosmos_search
+
+    def test_index_mismatch_logs_warning(self, mock_mongo_client: tuple) -> None:
+        _client, mock_db, _collection = mock_mongo_client
+        # Existing index with HNSW kind
+        mock_db.command.return_value = {
+            "cursor": {
+                "firstBatch": [
+                    {
+                        "name": "vecs_vector_index",
+                        "cosmosSearchOptions": {"kind": "vector-hnsw"},
+                    },
+                ],
+            },
+        }
+
+        # Try to create with DiskANN
+        with patch("maas.vector_stores.documentdb.logger") as mock_logger:
+            AzureDocumentDB(
+                db_name="testdb",
+                collection_name="vecs",
+                embedding_model_dims=1536,
+                mongo_uri="mongodb://localhost:27017",
+                index_type="diskann",
+            )
+
+            # Assert warning logged with correct message
+            mock_logger.warning.assert_called_once()
+            warning_call = mock_logger.warning.call_args
+            assert "Drop and recreate" in warning_call.args[0]
+            assert "vector-hnsw" in warning_call.args
+            assert "vector-diskann" in warning_call.args
+
+    def test_invalid_index_type_raises_value_error(self, mock_mongo_client: tuple) -> None:
+        _client, _db, _collection = mock_mongo_client
+
+        with pytest.raises(ValueError, match="index_type must be either 'diskann' or 'hnsw'"):
+            AzureDocumentDB(
+                db_name="testdb",
+                collection_name="vecs",
+                embedding_model_dims=1536,
+                mongo_uri="mongodb://localhost:27017",
+                index_type="ivf",
+            )
+
+    def test_default_index_type_is_diskann(self, mock_mongo_client: tuple) -> None:
+        _client, mock_db, _collection = mock_mongo_client
+        mock_db.command.return_value = {"cursor": {"firstBatch": []}}
+
+        # Don't pass index_type, rely on default
+        store = AzureDocumentDB(
+            db_name="testdb",
+            collection_name="vecs",
+            embedding_model_dims=1536,
+            mongo_uri="mongodb://localhost:27017",
+        )
+
+        assert store.index_type == "diskann"
+        assert store.index_kind == "vector-diskann"
+
+        # Verify createIndexes used DiskANN params
+        create_calls = [c for c in mock_db.command.call_args_list if c.args[0] == "createIndexes"]
+        assert len(create_calls) == 1
+        cosmos_opts = create_calls[0].kwargs["indexes"][0]["cosmosSearchOptions"]
+        assert cosmos_opts["kind"] == "vector-diskann"
